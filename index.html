@@ -6,8 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>분리수거 도우미</title>
 
-  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+  <!-- Teachable Machine 호환 라이브러리 -->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8.4/dist/teachablemachine-image.min.js"></script>
 
   <style>
     * {
@@ -39,7 +40,7 @@
     main {
       width: 100%;
       max-width: 520px;
-      margin: 45px auto;
+      margin: 40px auto;
       padding: 0 18px;
     }
 
@@ -56,8 +57,7 @@
     .intro p {
       color: #7a867d;
       font-size: 14px;
-      line-height: 1.6;
-      margin: 0;
+      line-height: 1.7;
     }
 
     .card {
@@ -133,11 +133,6 @@
       font-size: 16px;
       font-weight: 700;
       cursor: pointer;
-      transition: 0.2s;
-    }
-
-    .analyze-button:hover {
-      background: #196b3b;
     }
 
     .analyze-button:disabled {
@@ -149,7 +144,9 @@
       text-align: center;
       color: #89948c;
       font-size: 12px;
+      line-height: 1.6;
       margin-top: 16px;
+      overflow-wrap: anywhere;
     }
 
     #result {
@@ -196,16 +193,6 @@
       font-size: 11px;
       margin-top: 25px;
     }
-
-    @media (max-width: 480px) {
-      main {
-        margin-top: 30px;
-      }
-
-      .intro h1 {
-        font-size: 24px;
-      }
-    }
   </style>
 </head>
 
@@ -251,11 +238,7 @@
 
     </div>
 
-    <button
-      class="analyze-button"
-      id="analyzeButton"
-      disabled
-    >
+    <button class="analyze-button" id="analyzeButton" disabled>
       이미지 분석하기
     </button>
 
@@ -282,12 +265,13 @@
 </main>
 
 <script>
-  // 제공받은 Teachable Machine 모델
+  // 제공받은 AI 모델 주소
   const MODEL_URL =
     "https://teachablemachine.withgoogle.com/models/0D7Dp_aCY/";
 
   let model = null;
   let selectedImage = null;
+  let isAnalyzing = false;
 
   const imageInput = document.getElementById("imageInput");
   const preview = document.getElementById("preview");
@@ -295,27 +279,33 @@
   const statusText = document.getElementById("status");
   const result = document.getElementById("result");
 
+  // 분리수거 안내
   const sortingGuide = {
     paper: {
       name: "종이",
-      message: "종이류 분리수거함에 버려 주세요.\n이물질이 묻은 부분은 제거하고, 가능한 한 펼쳐서 배출해 주세요."
+      message:
+        "종이류 분리수거함에 버려 주세요.\n이물질이 묻은 부분은 제거하고 펼쳐서 배출해 주세요."
     },
+
     can: {
       name: "캔",
-      message: "캔류 분리수거함에 버려 주세요.\n내용물을 비우고 가능한 한 깨끗하게 배출해 주세요."
+      message:
+        "캔류 분리수거함에 버려 주세요.\n내용물을 비우고 가능한 한 깨끗하게 배출해 주세요."
     },
+
     plastic: {
       name: "플라스틱",
-      message: "플라스틱 분리수거함에 버려 주세요.\n내용물을 비우고 라벨 등 다른 재질은 분리해 주세요."
+      message:
+        "플라스틱 분리수거함에 버려 주세요.\n내용물을 비우고 라벨 등 다른 재질은 분리해 주세요."
     }
   };
 
-  // AI가 인식한 클래스 이름을 분리수거 종류로 변환
+  // AI 클래스 이름을 분리수거 종류로 변환
   function getCategory(label) {
     const name = label.trim().toLowerCase();
 
     if (
-      ["a", "paper", "papers", "종이", "종이류"].includes(name) ||
+      name === "a" ||
       name.includes("paper") ||
       name.includes("종이")
     ) {
@@ -323,7 +313,7 @@
     }
 
     if (
-      ["b", "can", "cans", "metal", "캔", "캔류"].includes(name) ||
+      name === "b" ||
       name.includes("can") ||
       name.includes("캔") ||
       name.includes("금속")
@@ -332,7 +322,7 @@
     }
 
     if (
-      ["c", "plastic", "플라스틱", "플라스틱류"].includes(name) ||
+      name === "c" ||
       name.includes("plastic") ||
       name.includes("플라스틱")
     ) {
@@ -345,24 +335,38 @@
   // AI 모델 불러오기
   async function loadModel() {
     try {
+      statusText.textContent = "AI 모델을 불러오는 중입니다.";
+
+      if (typeof tf === "undefined") {
+        throw new Error("TensorFlow.js를 불러오지 못했습니다.");
+      }
+
+      if (typeof tmImage === "undefined") {
+        throw new Error("Teachable Machine 라이브러리를 불러오지 못했습니다.");
+      }
+
+      await tf.ready();
+
       model = await tmImage.load(
         MODEL_URL + "model.json",
         MODEL_URL + "metadata.json"
       );
 
       statusText.textContent = "사진을 선택해 주세요.";
-
       analyzeButton.disabled = !selectedImage;
 
-    } catch (error) {
-      statusText.textContent =
-        "AI 모델을 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.";
+      console.log("AI 모델 로딩 성공");
+      console.log("클래스 개수:", model.getTotalClasses());
 
-      console.error(error);
+    } catch (error) {
+      console.error("모델 로딩 오류:", error);
+
+      statusText.textContent =
+        "모델 로딩 오류: " + error.message;
     }
   }
 
-  // 이미지 선택 및 미리보기
+  // 이미지 업로드
   imageInput.addEventListener("change", function(event) {
     const file = event.target.files[0];
 
@@ -375,6 +379,10 @@
 
     const reader = new FileReader();
 
+    reader.onerror = function() {
+      statusText.textContent = "이미지 파일을 읽지 못했습니다.";
+    };
+
     reader.onload = function(e) {
       const image = new Image();
 
@@ -385,6 +393,7 @@
         preview.style.display = "block";
 
         document.getElementById("uploadIcon").style.display = "none";
+
         document.getElementById("uploadText").textContent =
           "선택한 사진을 확인해 주세요.";
 
@@ -397,6 +406,10 @@
           : "AI 모델을 불러오는 중입니다.";
       };
 
+      image.onerror = function() {
+        statusText.textContent = "이미지를 표시할 수 없습니다.";
+      };
+
       image.src = e.target.result;
     };
 
@@ -405,16 +418,39 @@
 
   // 이미지 분석
   analyzeButton.addEventListener("click", async function() {
-    if (!model || !selectedImage) return;
 
+    if (!model || !selectedImage || isAnalyzing) return;
+
+    isAnalyzing = true;
     analyzeButton.disabled = true;
     analyzeButton.textContent = "분석 중...";
     statusText.textContent = "AI가 사진을 분석하고 있습니다.";
     result.style.display = "none";
 
     try {
+
+      // 이미지 크기 확인
+      if (
+        !selectedImage.complete ||
+        selectedImage.naturalWidth === 0 ||
+        selectedImage.naturalHeight === 0
+      ) {
+        throw new Error("이미지가 정상적으로 준비되지 않았습니다.");
+      }
+
+      console.log("분석 이미지:", selectedImage);
+      console.log("AI 모델:", model);
+
+      // AI 이미지 분석
       const predictions = await model.predict(selectedImage);
 
+      console.log("AI 분석 결과:", predictions);
+
+      if (!predictions || predictions.length === 0) {
+        throw new Error("AI 분석 결과가 비어 있습니다.");
+      }
+
+      // 가장 높은 확률의 클래스 찾기
       const best = predictions.reduce((a, b) =>
         a.probability > b.probability ? a : b
       );
@@ -425,13 +461,15 @@
       result.style.display = "block";
 
       if (best.probability < 0.8) {
+
         document.getElementById("resultTitle").textContent =
           "정확하게 인식하지 못했어요.";
 
         document.getElementById("resultMessage").textContent =
-          "사진을 조금 더 선명하게 촬영한 뒤 다시 분석해 주세요.";
+          "사진을 더 선명하게 촬영한 뒤 다시 분석해 주세요.";
 
       } else if (category && sortingGuide[category]) {
+
         const guide = sortingGuide[category];
 
         document.getElementById("resultTitle").textContent =
@@ -441,30 +479,41 @@
           guide.message;
 
       } else {
+
         document.getElementById("resultTitle").textContent =
-          "AI 인식 결과: " + best.className;
+          "새로운 종류가 인식되었어요.";
 
         document.getElementById("resultMessage").textContent =
-          "이 종류에 대한 분리수거 안내를 아직 설정하지 않았어요.";
+          "인식된 클래스 이름: " + best.className +
+          "\n아직 이 종류의 분리수거 안내가 설정되지 않았습니다.";
+
       }
 
       document.getElementById("confidence").textContent =
-        "AI 인식 신뢰도 " + percent + "%";
+        "AI 인식 신뢰도: " + percent + "%";
 
       statusText.textContent = "분석이 완료되었습니다.";
 
     } catch (error) {
-      statusText.textContent =
-        "분석 중 오류가 발생했습니다. 다시 시도해 주세요.";
 
-      console.error(error);
+      console.error("이미지 분석 오류:", error);
+
+      statusText.textContent =
+        "분석 오류: " + (error.message || String(error));
+
+    } finally {
+
+      isAnalyzing = false;
+      analyzeButton.disabled = !model || !selectedImage;
+      analyzeButton.textContent = "이미지 분석하기";
+
     }
 
-    analyzeButton.disabled = false;
-    analyzeButton.textContent = "이미지 분석하기";
   });
 
+  // 앱 시작
   loadModel();
+
 </script>
 
 </body>
